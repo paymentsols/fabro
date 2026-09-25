@@ -57,7 +57,9 @@ use petri_execution::{
 use petri_runtime::driver::lifecycle::ExecutionHooks;
 pub use petri_runtime::executor::Retention;
 use petri_runtime::executor::SecretProvider;
-use petri_runtime::{LostSandbox, RunOptions, SandboxBackend};
+use petri_runtime::{
+    DaytonaResources, DaytonaSandboxKind, LostSandbox, RunOptions, SandboxBackend,
+};
 use tokio::fs;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -183,6 +185,18 @@ pub async fn run(request: RunRequest) -> Result<RunOutcome, RunError> {
     // one instead of failing the run.
     if request.hooks.is_some() && backend != SandboxBackend::Host {
         options.sandbox.lost_sandbox = LostSandbox::Replace;
+    }
+    // Petri's Daytona defaults, a `linux-vm` runner with 20 GiB of disk, fail
+    // every snapshot create on an entry-tier Daytona account: it has no VM
+    // runners in any region and caps a sandbox at 10 GiB of disk. Run the
+    // runner as a container sized within that tier until the environment's
+    // resources reach Petri.
+    if backend == SandboxBackend::Daytona {
+        options.sandbox.daytona_kind = DaytonaSandboxKind::Container;
+        options.sandbox.daytona_resources = DaytonaResources {
+            disk_mb: 10 * 1024,
+            ..DaytonaResources::default()
+        };
     }
     let resumed = matches!(request.execution, Execution::Resume);
     let mut runtime = request
